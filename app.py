@@ -16,7 +16,10 @@ def prepare_features(df):
     df['Volume_Change'] = df['Volume'].pct_change()
     df['Return_1d'] = df['Close'].pct_change().shift(-1)
     df['Target'] = (df['Return_1d'] > 0).astype(int)
-    df.dropna(inplace=True)
+    
+    # DROP ALL ROWS WITH NaN AFTER CALCULATIONS
+    df = df.dropna()
+    
     features = ['SMA20', 'RSI', 'MACD', 'Volume_Change']
     return df, features
 
@@ -59,8 +62,7 @@ def fundamental_summary(info):
     return summary
 
 def simple_news_sentiment(ticker):
-    # Dummy sentiment: Positive if ticker starts with letter A-M else Neutral
-    # Replace with real API or NLP for real app
+    # Dummy sentiment for demo purposes
     if ticker[0].upper() <= 'M':
         return "Positive", 0.7, "Dummy sentiment: ticker starts with early alphabet."
     else:
@@ -91,11 +93,14 @@ if ticker:
         if len(hist) < MIN_ROWS_FOR_ML:
             st.warning(f"Not enough data ({len(hist)} rows) for ML prediction. Please select a longer period.")
         else:
-            model, accuracy, features = train_model(hist)
-            pred, conf = predict_next_day(model, hist, features)
-            st.write(f"ML Model Accuracy (backtest): {accuracy*100:.2f}%")
-            st.markdown(f"**Next-day Prediction:** {'Up 📈' if pred == 1 else 'Down 📉'}")
-            st.markdown(f"**Model Confidence:** {conf*100:.2f}%")
+            try:
+                model, accuracy, features = train_model(hist)
+                pred, conf = predict_next_day(model, hist, features)
+                st.write(f"ML Model Accuracy (backtest): {accuracy*100:.2f}%")
+                st.markdown(f"**Next-day Prediction:** {'Up 📈' if pred == 1 else 'Down 📉'}")
+                st.markdown(f"**Model Confidence:** {conf*100:.2f}%")
+            except Exception as e:
+                st.error(f"ML model error: {e}")
 
         # Volume & Fundamentals
         vol_analysis = volume_analysis(hist)
