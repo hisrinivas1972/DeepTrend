@@ -13,13 +13,21 @@ def prepare_features(df):
     df['RSI'] = ta.momentum.RSIIndicator(df['Close'], window=14).rsi()
     macd = ta.trend.MACD(df['Close'])
     df['MACD'] = macd.macd()
+    
     df['Volume_Change'] = df['Volume'].pct_change()
     df['Return_1d'] = df['Close'].pct_change().shift(-1)
     df['Target'] = (df['Return_1d'] > 0).astype(int)
-    
-    # DROP ALL ROWS WITH NaN AFTER CALCULATIONS
+
+    # Replace infinite values with NaN
+    df.replace([float('inf'), float('-inf')], pd.NA, inplace=True)
+
+    # Drop all NaN rows
     df = df.dropna()
-    
+
+    # Clip extreme values for stability
+    df['Volume_Change'] = df['Volume_Change'].clip(lower=-1, upper=1)
+    df['RSI'] = df['RSI'].clip(lower=0, upper=100)
+
     features = ['SMA20', 'RSI', 'MACD', 'Volume_Change']
     return df, features
 
