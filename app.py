@@ -1,14 +1,18 @@
-# app.py (sample)
+
+
 import streamlit as st
 import yfinance as yf
 
-st.title("Stellar Stock AI - Live Stock Analysis")
+st.title("DeepTrend - Live Stock Analysis")
 
 ticker = st.text_input("Enter stock ticker (e.g. RELIANCE.NS for India)", "RELIANCE.NS")
 
+# Let user choose the time range
+time_range = st.selectbox("Select trend period", ["1mo", "3mo", "6mo", "1y", "5y"])
+
 if ticker:
     stock = yf.Ticker(ticker)
-    hist = stock.history(period="1mo")
+    hist = stock.history(period=time_range)
     
     if not hist.empty:
         latest_price = hist['Close'][-1]
