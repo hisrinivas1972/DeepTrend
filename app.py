@@ -87,12 +87,15 @@ if ticker:
         st.subheader(f"{stock.info.get('longName', ticker)} ({ticker})")
         st.write(f"Latest Price: ₹{hist['Close'][-1]:.2f}")
 
-        # Train ML model & predict
-        model, accuracy, features = train_model(hist)
-        pred, conf = predict_next_day(model, hist, features)
-        st.write(f"ML Model Accuracy (backtest): {accuracy*100:.2f}%")
-        st.markdown(f"**Next-day Prediction:** {'Up 📈' if pred == 1 else 'Down 📉'}")
-        st.markdown(f"**Model Confidence:** {conf*100:.2f}%")
+        MIN_ROWS_FOR_ML = 30
+        if len(hist) < MIN_ROWS_FOR_ML:
+            st.warning(f"Not enough data ({len(hist)} rows) for ML prediction. Please select a longer period.")
+        else:
+            model, accuracy, features = train_model(hist)
+            pred, conf = predict_next_day(model, hist, features)
+            st.write(f"ML Model Accuracy (backtest): {accuracy*100:.2f}%")
+            st.markdown(f"**Next-day Prediction:** {'Up 📈' if pred == 1 else 'Down 📉'}")
+            st.markdown(f"**Model Confidence:** {conf*100:.2f}%")
 
         # Volume & Fundamentals
         vol_analysis = volume_analysis(hist)
