@@ -2,133 +2,112 @@ import streamlit as st
 import yfinance as yf
 import pandas as pd
 import ta
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.model_selection import train_test_split
+from textblob import TextBlob
 
-st.title("DeepTrend - Live Stock Analysis")
+# --- Functions ---
 
-ticker = st.text_input("Enter stock ticker (e.g. RELIANCE.NS for India)", "RELIANCE.NS")
-time_range = st.selectbox("Select trend period", ["1mo", "3mo", "6mo", "1y", "5y"])
+def prepare_features(df):
+    df['SMA20'] = ta.trend.sma_indicator(df['Close'], window=20)
+    df['RSI'] = ta.momentum.RSIIndicator(df['Close'], window=14).rsi()
+    macd = ta.trend.MACD(df['Close'])
+    df['MACD'] = macd.macd()
+    df['Volume_Change'] = df['Volume'].pct_change()
+    df['Return_1d'] = df['Close'].pct_change().shift(-1)
+    df['Target'] = (df['Return_1d'] > 0).astype(int)
+    df.dropna(inplace=True)
+    features = ['SMA20', 'RSI', 'MACD', 'Volume_Change']
+    return df, features
+
+def train_model(df):
+    df, features = prepare_features(df)
+    X = df[features]
+    y = df['Target']
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, shuffle=False)
+    model = RandomForestClassifier(n_estimators=100, random_state=42)
+    model.fit(X_train, y_train)
+    accuracy = model.score(X_test, y_test)
+    return model, accuracy, features
+
+def predict_next_day(model, df, features):
+    latest_data = df[features].iloc[-1:].values
+    pred = model.predict(latest_data)[0]
+    conf = max(model.predict_proba(latest_data)[0])
+    return pred, conf
+
+def volume_analysis(df):
+    latest_volume = df['Volume'].iloc[-1]
+    avg_volume = df['Volume'].rolling(window=20).mean().iloc[-1]
+    if latest_volume > 1.5 * avg_volume:
+        return "Volume spike detected — possible strong move."
+    else:
+        return "Volume normal."
+
+def fundamental_summary(info):
+    pe = info.get('trailingPE', None)
+    market_cap = info.get('marketCap', None)
+    summary = []
+    if pe:
+        summary.append(f"P/E Ratio: {pe:.2f}")
+        if pe > 25:
+            summary.append("High P/E: May indicate overvaluation.")
+        else:
+            summary.append("P/E within reasonable range.")
+    if market_cap:
+        summary.append(f"Market Cap: {market_cap/1e9:.2f} Billion")
+    return summary
+
+def simple_news_sentiment(ticker):
+    # Dummy sentiment: Positive if ticker starts with letter A-M else Neutral
+    # Replace with real API or NLP for real app
+    if ticker[0].upper() <= 'M':
+        return "Positive", 0.7, "Dummy sentiment: ticker starts with early alphabet."
+    else:
+        return "Neutral", 0.5, "Dummy sentiment: no significant news."
+
+# --- Streamlit app UI ---
+
+st.title("DeepTrend - AI-Powered Stock Analysis")
+
+ticker = st.text_input("Enter stock ticker", "RELIANCE.NS")
+
+time_range = st.selectbox(
+    "Select trend period", 
+    ["1d", "5d", "1mo", "3mo", "6mo", "1y", "5y", "10y"]
+)
 
 if ticker:
     stock = yf.Ticker(ticker)
     hist = stock.history(period=time_range)
 
-    if not hist.empty:
-        # Calculate Indicators
-        hist['SMA20'] = ta.trend.sma_indicator(hist['Close'], window=20)
-        hist['SMA50'] = ta.trend.sma_indicator(hist['Close'], window=50)
-        hist['RSI'] = ta.momentum.RSIIndicator(hist['Close'], window=14).rsi()
-        macd = ta.trend.MACD(hist['Close'])
-        hist['MACD'] = macd.macd()
-        hist['MACD_Signal'] = macd.macd_signal()
-        bb = ta.volatility.BollingerBands(hist['Close'], window=20, window_dev=2)
-        hist['BB_High'] = bb.bollinger_hband()
-        hist['BB_Low'] = bb.bollinger_lband()
-
-        # Price & performance
-        latest_price = hist['Close'][-1]
-        prev_close = hist['Close'][-2]
-        price_change = latest_price - prev_close
-        pct_change = (price_change / prev_close) * 100
-
-        latest_rsi = hist['RSI'][-1]
-        latest_macd = hist['MACD'][-1]
-        latest_macd_signal = hist['MACD_Signal'][-1]
-
-        st.subheader(f"{stock.info.get('longName', ticker)} ({ticker})")
-        st.write(f"Price: ₹{latest_price:.2f}")
-        st.write(f"Change: ₹{price_change:.2f} ({pct_change:.2f}%)")
-        st.write(f"RSI (14): {latest_rsi:.2f}")
-
-        st.line_chart(hist[['Close', 'SMA20', 'SMA50']])
-        st.line_chart(hist[['MACD', 'MACD_Signal']])
-        st.line_chart(hist[['Close', 'BB_High', 'BB_Low']])
-
-        # === Indicator Interpretation === #
-        # RSI
-        if latest_rsi > 70:
-            rsi_signal = "Overbought - possible reversal."
-        elif latest_rsi < 30:
-            rsi_signal = "Oversold - potential bounce."
-        else:
-            rsi_signal = "Neutral."
-
-        # SMA
-        sma_signal = "Bullish" if hist['SMA20'][-1] > hist['SMA50'][-1] else "Bearish"
-
-        # MACD
-        if latest_macd > latest_macd_signal:
-            macd_signal = "MACD crossover suggests upward momentum (Buy signal)."
-        else:
-            macd_signal = "MACD crossover suggests downward momentum (Sell signal)."
-
-        # Bollinger Bands
-        if latest_price > hist['BB_High'][-1]:
-            bb_signal = "Price is above upper Bollinger Band → Overbought."
-        elif latest_price < hist['BB_Low'][-1]:
-            bb_signal = "Price is below lower Bollinger Band → Oversold."
-        else:
-            bb_signal = "Price within bands → Stable."
-
-        # === Recommendation Logic === #
-        if latest_rsi < 30 and latest_macd > latest_macd_signal:
-            recommendation = "BUY"
-            confidence = "High"
-            bull_case = [
-                "RSI indicates oversold.",
-                "MACD crossover supports upward trend.",
-                "Price rebounding from lower Bollinger Band."
-            ]
-            bear_case = [
-                "Might be short-lived recovery.",
-                "Needs confirmation from volume and fundamentals."
-            ]
-        elif latest_rsi > 70 or latest_macd < latest_macd_signal:
-            recommendation = "SELL"
-            confidence = "Medium"
-            bull_case = [
-                "Momentum still strong despite overbought signals.",
-                "Possible continuation if supported by fundamentals."
-            ]
-            bear_case = [
-                "Overbought on RSI and Bollinger Bands.",
-                "MACD shows weakening momentum."
-            ]
-        else:
-            recommendation = "HOLD"
-            confidence = "Medium"
-            bull_case = [
-                "No major warning signs.",
-                "Sideways consolidation could lead to breakout."
-            ]
-            bear_case = [
-                "Unclear trend direction.",
-                "Momentum indicators not aligned."
-            ]
-
-        key_risks = [
-            "Macro uncertainty may override technicals.",
-            "False breakouts due to low volume or external events."
-        ]
-
-        # === Output to UI === #
-        st.markdown(f"**Recommendation:** {recommendation}")
-        st.markdown(f"**AI Confidence:** {confidence}")
-        st.markdown(f"**RSI Insight:** {rsi_signal}")
-        st.markdown(f"**SMA Insight:** {sma_signal}")
-        st.markdown(f"**MACD Insight:** {macd_signal}")
-        st.markdown(f"**Bollinger Bands Insight:** {bb_signal}")
-
-        with st.expander("Bull Case"):
-            for point in bull_case:
-                st.write(f"- {point}")
-
-        with st.expander("Bear Case"):
-            for point in bear_case:
-                st.write(f"- {point}")
-
-        with st.expander("Key Risks"):
-            for risk in key_risks:
-                st.write(f"- {risk}")
-
+    if hist.empty:
+        st.error("No data found.")
     else:
-        st.error("No data found for this ticker.")
+        st.subheader(f"{stock.info.get('longName', ticker)} ({ticker})")
+        st.write(f"Latest Price: ₹{hist['Close'][-1]:.2f}")
+
+        # Train ML model & predict
+        model, accuracy, features = train_model(hist)
+        pred, conf = predict_next_day(model, hist, features)
+        st.write(f"ML Model Accuracy (backtest): {accuracy*100:.2f}%")
+        st.markdown(f"**Next-day Prediction:** {'Up 📈' if pred == 1 else 'Down 📉'}")
+        st.markdown(f"**Model Confidence:** {conf*100:.2f}%")
+
+        # Volume & Fundamentals
+        vol_analysis = volume_analysis(hist)
+        st.write(f"Volume Analysis: {vol_analysis}")
+
+        fundamentals = fundamental_summary(stock.info)
+        with st.expander("Fundamental Data"):
+            for line in fundamentals:
+                st.write(f"- {line}")
+
+        # News Sentiment
+        sentiment, sentiment_conf, explanation = simple_news_sentiment(ticker)
+        st.write(f"News Sentiment: {sentiment} (Confidence: {sentiment_conf*100:.0f}%)")
+        with st.expander("Sentiment Explanation"):
+            st.write(explanation)
+
+        # Show price chart
+        st.line_chart(hist['Close'])
