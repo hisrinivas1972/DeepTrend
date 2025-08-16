@@ -1,6 +1,8 @@
+numpy
 streamlit
-matplotlib
 yfinance
 pandas
-numpy
 ta
+scikit-learn
+textblob
+matplotlib
